@@ -1,0 +1,14 @@
+{
+	"authors": [
+		"Icosahedron Instrumentality"
+	],
+	"copyright": "Copyright © 2026, Icosahedron Instrumentality",
+	"dependencies": {
+		"raylib-d": "~>5.5.3"
+	},
+	"dflags": ["-O"],
+	"libs": ["raylib"],
+	"description": "Audio visualizer app",
+	"license": "ISC",
+	"name": "audiovision"
+}
