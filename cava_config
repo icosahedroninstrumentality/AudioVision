@@ -1,6 +1,6 @@
 [general]
 bars = 128
-framerate = 60
+framerate = 30
 
 [input]
 method = pipewire

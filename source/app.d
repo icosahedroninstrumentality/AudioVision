@@ -67,7 +67,7 @@ void main () {
 	);
 
 	InitWindow(WINDOW_W, WINDOW_H, "AudioVision");
-	SetTargetFPS(60);
+	SetTargetFPS(30);
 
 	spawnCava();
 
