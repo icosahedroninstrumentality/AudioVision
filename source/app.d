@@ -19,8 +19,7 @@ int[] bars;
 
 ProcessPipes cavaPipe;
 
-void spawnCava()
-{
+void spawnCava () {
 	string[] args = [
 		"cava", "-p", "./cava_config"
 	];
@@ -31,38 +30,32 @@ void spawnCava()
 	fcntl(cavaPipe.stdout.fileno, F_SETFL, O_NONBLOCK);
 }
 
-void pollCava()
-{
+void pollCava () {
 	import core.sys.posix.unistd : read;
 
-	char[4096] buf;
+	char[1028] buf;
 	auto n = read(cavaPipe.stdout.fileno, buf.ptr, buf.length);
 	if (n <= 0) return; // nothing to read
 
 	auto data = cast(string)buf[0 .. n];
 
-	foreach (line; data.split("\n"))
-	{
+	foreach (line; data.split("\n")) {
 		if (line.length == 0) continue;
 
-		try
-		{
+		try {
 			bars = line
 				.strip()
 				.split(';')
 				.filter!(s => s.length)
 				.map!(to!int)
 				.array;
-		}
-		catch (Exception)
-		{
+		} catch (Exception) {
 			// ignore bad lines
 		}
 	}
 }
 
-void main()
-{
+void main () {
 	SetConfigFlags(
 		ConfigFlags.FLAG_BORDERLESS_WINDOWED_MODE |
 		ConfigFlags.FLAG_WINDOW_TRANSPARENT |
@@ -78,18 +71,20 @@ void main()
 
 	spawnCava();
 
-	while (!WindowShouldClose())
-	{
+	while (!WindowShouldClose()) {
 		// center on screen horizontally
-		SetWindowPosition(GetMonitorWidth(GetCurrentMonitor()) / 2 - WINDOW_W / 2, 32);
+		Vector2 pos = GetWindowPosition();
+		Vector2 target = Vector2(GetMonitorWidth(GetCurrentMonitor()) / 2 - cast (float) WINDOW_W / 2, 32);
+		if (pos.x != target.x || pos.y != target.y) SetWindowPosition(cast (int) target.x, cast (int) target.y);
 
 		pollCava();
+		import core.thread;
+		import core.time;
+		Thread.sleep(1.msecs);
 
-		BeginDrawing();
-		ClearBackground(Colors.BLANK);
-
-		if (bars.length)
-		{
+		if (bars.length == 128) {
+			BeginDrawing();
+			ClearBackground(Colors.BLANK);
 			float barW = cast(float)WINDOW_W / bars.length;
 			foreach (i, v; bars)
 			{
@@ -111,9 +106,8 @@ void main()
 					Color(r, g, 64)
 				);
 			}
+			EndDrawing();
 		}
-
-		EndDrawing();
 	}
 
 	CloseWindow();
