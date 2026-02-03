@@ -3,78 +3,61 @@ import std.string;
 import std.array;
 import std.conv;
 import std.algorithm;
+import std.process;
+import std.exception;
 
 import core.sys.posix.unistd;
-import core.sys.posix.sys.select;
-import core.sys.posix.sys.time;
+import core.sys.posix.fcntl : fcntl, F_SETFL, O_NONBLOCK;
 
 import raylib;
 
 enum WINDOW_W = 256;
 enum WINDOW_H = 64 + 16;
+enum MAX_BAR_VALUE = 2048;
 
-int cavaFd = -1;
-string stdinBuf;
 int[] bars;
+
+ProcessPipes cavaPipe;
 
 void spawnCava()
 {
-	int[2] pipefd;
-	if (pipe(pipefd) != 0)
-	{
-		writeln("pipe() failed");
-		return;
-	}
+	string[] args = [
+		"cava", "-p", "./cava_config"
+	];
 
-	auto pid = fork();
-	if (pid == 0)
-	{
-		// child
-		close(pipefd[0]);
-		dup2(pipefd[1], 1); // stdout -> pipe
-		close(pipefd[1]);
+	cavaPipe = pipeProcess(args);
 
-		execlp("cava", "cava", null);
-		_exit(1);
-	}
-
-	// parent
-	close(pipefd[1]);
-	cavaFd = pipefd[0];
+	// Set non-blocking mode
+	fcntl(cavaPipe.stdout.fileno, F_SETFL, O_NONBLOCK);
 }
 
 void pollCava()
 {
-	fd_set rfds;
-	FD_ZERO(&rfds);
-	FD_SET(cavaFd, &rfds);
-
-	timeval tv;
-	tv.tv_sec = 0;
-	tv.tv_usec = 0;
-
-	if (select(cavaFd + 1, &rfds, null, null, &tv) <= 0)
-		return;
+	import core.sys.posix.unistd : read;
 
 	char[4096] buf;
-	auto n = read(cavaFd, buf.ptr, buf.length);
-	if (n <= 0)
-		return;
+	auto n = read(cavaPipe.stdout.fileno, buf.ptr, buf.length);
+	if (n <= 0) return; // nothing to read
 
-	stdinBuf ~= buf[0 .. n];
+	auto data = cast(string)buf[0 .. n];
 
-	size_t nl;
-	while ((nl = stdinBuf.indexOf('\n')) != size_t.max)
+	foreach (line; data.split("\n"))
 	{
-		auto line = stdinBuf[0 .. nl];
-		stdinBuf = stdinBuf[nl + 1 .. $];
+		if (line.length == 0) continue;
 
-		bars = line
-			.strip()
-			.split(';')
-			.filter!(s => s.length)
-			.map!(to!int)
-			.array;
+		try
+		{
+			bars = line
+				.strip()
+				.split(';')
+				.filter!(s => s.length)
+				.map!(to!int)
+				.array;
+		}
+		catch (Exception)
+		{
+			// ignore bad lines
+		}
 	}
 }
 
@@ -93,13 +76,13 @@ void main()
 	InitWindow(WINDOW_W, WINDOW_H, "AudioVision");
 	SetTargetFPS(60);
 
-	raylib.SetWindowState(ConfigFlags.FLAG_WINDOW_UNDECORATED); // some wms need this again
-	// some may even fully ignore all decoration flags
-
 	spawnCava();
 
-	while (!WindowShouldClose()) {
+	while (!WindowShouldClose())
+	{
+		// center on screen horizontally
 		SetWindowPosition(GetMonitorWidth(GetCurrentMonitor()) / 2 - WINDOW_W / 2, 32);
+
 		pollCava();
 
 		BeginDrawing();
@@ -108,32 +91,23 @@ void main()
 		if (bars.length)
 		{
 			float barW = cast(float)WINDOW_W / bars.length;
-
 			foreach (i, v; bars)
 			{
-				float h = (cast(float)v / 64) * WINDOW_H;
 				import std.math;
-				float x = cast(float)i / cast(float)bars.length;
-				ubyte r = cast(ubyte) clamp(
-					256.0 * pow(1.0 - abs(x - 0.5), 5.0) + 64,
-					0.0,
-					255.0
-				);
+				
+				float xNorm = cast(float)i / cast(float)bars.length;
 
-				ubyte g = cast(ubyte) clamp(
-					256.0 * abs(x - 0.5) + 64,
-					0.0,
-					255.0
-				);
-
+				float barHeight = (cast(float)v / 64.0) * (WINDOW_H / 2);
 				float centerY = WINDOW_H / 2.0;
-				float barHeight = (cast(float)v / 64) * (WINDOW_H / 2); // half height above and below center
+
+				ubyte r = cast(ubyte)clamp(256.0 * pow(1.0 - abs(xNorm - 0.5), 5.0) + 64, 0.0, 255.0);
+				ubyte g = cast(ubyte)clamp(256.0 * abs(xNorm - 0.5) + 64, 0.0, 255.0);
 
 				DrawRectangle(
 					cast(int)(i * barW),
-					cast(int)(centerY - barHeight), // start at top of the bar
+					cast(int)(centerY - barHeight),
 					cast(int)barW - 1,
-					cast(int)(barHeight * 2),	   // full height extends down
+					cast(int)(barHeight * 2),
 					Color(r, g, 64)
 				);
 			}
