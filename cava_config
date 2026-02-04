@@ -13,10 +13,14 @@ data_format = ascii
 bar_delimiter = 32
 lower_cutoff = 20
 higher_cutoff = 20000
-noise_reduction = 0.0
 bar_delimiter = 59
 frame_delimiter = 10
 ascii_max_range = 64
 channels = stereo
 mono_option = average
 reverse = 0
+
+[smoothing]
+monstercat = 0
+waves = 100
+noise_reduction = 0.1
