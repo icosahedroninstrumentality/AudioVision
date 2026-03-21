@@ -15,7 +15,10 @@ enum WINDOW_W = 256;
 enum WINDOW_H = 64 + 16;
 enum MAX_BAR_VALUE = 2048;
 
-int[] bars;
+// Static buffer and length for bar data – reused every frame
+int[128] barsBuffer;
+int barsCount;
+int[] bars;  // slice into barsBuffer (no allocation)
 
 ProcessPipes cavaPipe;
 
@@ -25,33 +28,44 @@ void spawnCava () {
 	];
 
 	cavaPipe = pipeProcess(args);
-
-	// Set non-blocking mode
 	fcntl(cavaPipe.stdout.fileno, F_SETFL, O_NONBLOCK);
 }
 
 void pollCava () {
 	import core.sys.posix.unistd : read;
+	import std.algorithm.iteration : splitter;
+	import std.conv : to;
 
+	// Stack buffer for raw pipe data
 	char[1028] buf;
 	auto n = read(cavaPipe.stdout.fileno, buf.ptr, buf.length);
-	if (n <= 0) return; // nothing to read
+	if (n <= 0) return;
 
-	auto data = cast(string)buf[0 .. n];
+	string data = cast(string)buf[0 .. n];
 
-	foreach (line; data.split("\n")) {
+	// Iterate over lines without allocation
+	foreach (line; splitter(data, "\n")) {
 		if (line.length == 0) continue;
 
-		try {
-			bars = line
-				.strip()
-				.split(';')
-				.filter!(s => s.length)
-				.map!(to!int)
-				.array;
-		} catch (Exception) {
-			// ignore bad lines
+		int idx = 0;
+		// Parse semicolon‑separated tokens
+		foreach (token; splitter(line, ';')) {
+			if (token.length == 0) continue;
+			try {
+				if (idx < barsBuffer.length) {
+					barsBuffer[idx] = to!int(token);
+					idx++;
+				} else {
+					break; // too many values, ignore rest
+				}
+			} catch (Exception) {
+				// Skip invalid token
+			}
 		}
+
+		// Update the global slice (points to static buffer)
+		barsCount = idx;
+		bars = barsBuffer[0 .. idx];
 	}
 }
 
@@ -72,24 +86,20 @@ void main () {
 	spawnCava();
 
 	while (!WindowShouldClose()) {
-		// center on screen horizontally
+		// Center window horizontally
 		Vector2 pos = GetWindowPosition();
 		Vector2 target = Vector2(GetMonitorWidth(GetCurrentMonitor()) / 2 - cast (float) WINDOW_W / 2, 32);
 		if (pos.x != target.x || pos.y != target.y) SetWindowPosition(cast (int) target.x, cast (int) target.y);
 
 		pollCava();
-		import core.thread;
-		import core.time;
-		Thread.sleep(1.msecs);
 
 		if (bars.length == 128) {
 			BeginDrawing();
 			ClearBackground(Colors.BLANK);
 			float barW = cast(float)WINDOW_W / bars.length;
-			foreach (i, v; bars)
-			{
+			foreach (i, v; bars) {
 				import std.math;
-				
+
 				float xNorm = cast(float)i / cast(float)bars.length;
 
 				float barHeight = (cast(float)v / 64.0) * (WINDOW_H / 2);
