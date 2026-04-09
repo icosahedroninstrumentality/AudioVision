@@ -1,5 +1,5 @@
 [general]
-bars = 128
+bars = 256
 framerate = 30
 
 [input]

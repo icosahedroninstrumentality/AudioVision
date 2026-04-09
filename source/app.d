@@ -11,65 +11,85 @@ import core.sys.posix.fcntl : fcntl, F_SETFL, O_NONBLOCK;
 
 import raylib;
 
-enum WINDOW_W = 256;
-enum WINDOW_H = 64 + 16;
-enum MAX_BAR_VALUE = 2048;
+enum WINDOW_W = 220;
+enum WINDOW_H = 220;
+enum MAX_BAR_VALUE = 64;
 
-// Static buffer and length for bar data – reused every frame
-int[128] barsBuffer;
+float[256] barsBuffer;
 int barsCount;
-int[] bars;  // slice into barsBuffer (no allocation)
+float[] bars;
 
 ProcessPipes cavaPipe;
 
-void spawnCava () {
-	string[] args = [
-		"cava", "-p", "./cava_config"
-	];
+// Persistent buffer to accumulate partial data across frames
+char[4096] accumBuffer;
+size_t accumLen;
 
+void spawnCava() {
+	string[] args = ["cava", "-p", "./cava_config"];
 	cavaPipe = pipeProcess(args);
 	fcntl(cavaPipe.stdout.fileno, F_SETFL, O_NONBLOCK);
 }
 
-void pollCava () {
+void pollCava() {
 	import core.sys.posix.unistd : read;
 	import std.algorithm.iteration : splitter;
 	import std.conv : to;
 
-	// Stack buffer for raw pipe data
-	char[1028] buf;
-	auto n = read(cavaPipe.stdout.fileno, buf.ptr, buf.length);
-	if (n <= 0) return;
-
-	string data = cast(string)buf[0 .. n];
-
-	// Iterate over lines without allocation
-	foreach (line; splitter(data, "\n")) {
-		if (line.length == 0) continue;
-
-		int idx = 0;
-		// Parse semicolon‑separated tokens
-		foreach (token; splitter(line, ';')) {
-			if (token.length == 0) continue;
-			try {
-				if (idx < barsBuffer.length) {
-					barsBuffer[idx] = to!int(token);
-					idx++;
-				} else {
-					break; // too many values, ignore rest
-				}
-			} catch (Exception) {
-				// Skip invalid token
-			}
+	// 1. Read new data and append to accumulation buffer
+	char[4096] tmp;
+	auto n = read(cavaPipe.stdout.fileno, tmp.ptr, tmp.length);
+	if (n > 0) {
+		if (accumLen + n <= accumBuffer.length) {
+			accumBuffer[accumLen .. accumLen + n] = tmp[0 .. n];
+			accumLen += n;
+		} else {
+			// Buffer overflow – discard everything to avoid infinite growth
+			accumLen = 0;
+			return;
 		}
+	}
 
-		// Update the global slice (points to static buffer)
-		barsCount = idx;
-		bars = barsBuffer[0 .. idx];
+	// 2. Process complete lines
+	size_t lineStart = 0;
+	for (size_t i = 0; i < accumLen; ++i) {
+		if (accumBuffer[i] == '\n') {
+			// Found a complete line
+			auto line = accumBuffer[lineStart .. i];
+			lineStart = i + 1;
+
+			// Skip empty lines
+			if (line.length == 0) continue;
+
+			int idx = 0;
+			foreach (token; splitter(line, ';')) {
+				if (token.length == 0) continue;
+				try {
+					if (idx < barsBuffer.length) {
+						barsBuffer[idx] = to!float(token);
+						idx++;
+					} else break;
+				} catch (Exception) {}
+			}
+
+			barsCount = idx;
+			bars = barsBuffer[0 .. idx];
+		}
+	}
+
+	// 3. Remove processed lines from buffer
+	if (lineStart > 0) {
+		if (lineStart < accumLen) {
+			// Shift remaining partial data to front
+			accumBuffer[0 .. accumLen - lineStart] = accumBuffer[lineStart .. accumLen];
+			accumLen -= lineStart;
+		} else {
+			accumLen = 0;
+		}
 	}
 }
 
-void main () {
+void main() {
 	SetConfigFlags(
 		ConfigFlags.FLAG_BORDERLESS_WINDOWED_MODE |
 		ConfigFlags.FLAG_WINDOW_TRANSPARENT |
@@ -83,39 +103,52 @@ void main () {
 	InitWindow(WINDOW_W, WINDOW_H, "AudioVision");
 	SetTargetFPS(30);
 
+	// Center window once at startup
+	Vector2 target = Vector2(
+		GetMonitorWidth(GetCurrentMonitor()) / 2.0f - WINDOW_W / 2.0f,
+		32
+	);
+	SetWindowPosition(cast(int)target.x, cast(int)target.y);
+
 	spawnCava();
 
 	while (!WindowShouldClose()) {
-		// Center window horizontally
-		Vector2 pos = GetWindowPosition();
-		Vector2 target = Vector2(GetMonitorWidth(GetCurrentMonitor()) / 2 - cast (float) WINDOW_W / 2, 32);
-		if (pos.x != target.x || pos.y != target.y) SetWindowPosition(cast (int) target.x, cast (int) target.y);
-
 		pollCava();
 
-		if (bars.length == 128) {
+		if (bars.length == 256) {
+			import std.math;
 			BeginDrawing();
 			ClearBackground(Colors.BLANK);
-			float barW = cast(float)WINDOW_W / bars.length;
+
+			float centerX = WINDOW_W / 2.0f;
+			float centerY = WINDOW_H / 2.0f;
+			float baseRadiusX = 80.0f;
+			float baseRadiusY = 80.0f;
+			float barWidth = 1.0f;
+			float barMaxLength = 60.0f;
+
 			foreach (i, v; bars) {
-				import std.math;
+				float angle = (cast(float)i / cast(float)bars.length) * PI * 2.0f + PI;
+				float normalized = v / MAX_BAR_VALUE;
+				float barLength = normalized * barMaxLength;
+				float innerX = centerX + sin(angle) * (baseRadiusX - barLength);
+				float innerY = centerY + cos(angle) * (baseRadiusY - barLength);
+				float outerX = centerX + sin(angle) * (baseRadiusX + barLength * 0.5f);
+				float outerY = centerY + cos(angle) * (baseRadiusY + barLength * 0.5f);
 
-				float xNorm = cast(float)i / cast(float)bars.length;
+				float p = pow(normalized, 0.5);
+				ubyte r = cast(ubyte)(p * 255.0f);
+				ubyte g = cast(ubyte)((1.0f - p) * 255.0f);
+				ubyte b = cast(ubyte)(p * 128.0f + 64.0f);
 
-				float barHeight = (cast(float)v / 64.0) * (WINDOW_H / 2);
-				float centerY = WINDOW_H / 2.0;
-
-				ubyte r = cast(ubyte)clamp(256.0 * pow(1.0 - abs(xNorm - 0.5), 5.0) + 64, 0.0, 255.0);
-				ubyte g = cast(ubyte)clamp(256.0 * abs(xNorm - 0.5) + 64, 0.0, 255.0);
-
-				DrawRectangle(
-					cast(int)(i * barW),
-					cast(int)(centerY - barHeight),
-					cast(int)barW - 1,
-					cast(int)(barHeight * 2),
-					Color(r, g, 64)
+				DrawLineEx(
+					Vector2(innerX, innerY),
+					Vector2(outerX, outerY),
+					barWidth,
+					Color(r, g, b)
 				);
 			}
+
 			EndDrawing();
 		}
 	}
