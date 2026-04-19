@@ -10,7 +10,6 @@ source = auto
 method = raw
 raw_target = /dev/stdout
 data_format = ascii
-bar_delimiter = 32
 lower_cutoff = 20
 higher_cutoff = 20000
 bar_delimiter = 59
