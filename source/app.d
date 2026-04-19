@@ -21,6 +21,10 @@ float[] bars;
 
 ProcessPipes cavaPipe;
 
+// Persistent buffer to accumulate partial data across frames
+char[4096] accumBuffer;
+size_t accumLen;
+
 void spawnCava() {
 	string[] args = ["cava", "-p", "./cava_config"];
 	cavaPipe = pipeProcess(args);
@@ -29,41 +33,58 @@ void spawnCava() {
 
 void pollCava() {
 	import core.sys.posix.unistd : read;
-	
-	// Simple line buffer
-	static char[4096] lineBuffer;
-	static size_t lineLen;
-	
-	char[256] tmp;
+	import std.algorithm.iteration : splitter;
+	import std.conv : to;
+
+	// 1. Read new data and append to accumulation buffer
+	char[4096] tmp;
 	auto n = read(cavaPipe.stdout.fileno, tmp.ptr, tmp.length);
-	
 	if (n > 0) {
-		foreach (c; tmp[0 .. n]) {
-			if (c == '\n') {
-				if (lineLen > 0) {
-					// Process the complete line
-					auto line = lineBuffer[0 .. lineLen];
-					
-					int idx = 0;
-					foreach (token; splitter(line, ';')) {
-						if (token.length == 0) continue;
-						if (idx < barsBuffer.length) {
-							barsBuffer[idx] = to!float(token);
-							idx++;
-						} else break;
-					}
-					
-					if (idx > 0) {
-						barsCount = idx;
-						bars = barsBuffer[0 .. idx];
-					}
-					
-					lineLen = 0; // Reset for next line
-				}
-			} else if (lineLen < lineBuffer.length) {
-				lineBuffer[lineLen] = c;
-				lineLen++;
+		if (accumLen + n <= accumBuffer.length) {
+			accumBuffer[accumLen .. accumLen + n] = tmp[0 .. n];
+			accumLen += n;
+		} else {
+			// Buffer overflow – discard everything to avoid infinite growth
+			accumLen = 0;
+			return;
+		}
+	}
+
+	// 2. Process complete lines
+	size_t lineStart = 0;
+	for (size_t i = 0; i < accumLen; ++i) {
+		if (accumBuffer[i] == '\n') {
+			// Found a complete line
+			auto line = accumBuffer[lineStart .. i];
+			lineStart = i + 1;
+
+			// Skip empty lines
+			if (line.length == 0) continue;
+
+			int idx = 0;
+			foreach (token; splitter(line, ';')) {
+				if (token.length == 0) continue;
+				try {
+					if (idx < barsBuffer.length) {
+						barsBuffer[idx] = to!float(token);
+						idx++;
+					} else break;
+				} catch (Exception) {}
 			}
+
+			barsCount = idx;
+			bars = barsBuffer[0 .. idx];
+		}
+	}
+
+	// 3. Remove processed lines from buffer
+	if (lineStart > 0) {
+		if (lineStart < accumLen) {
+			// Shift remaining partial data to front
+			accumBuffer[0 .. accumLen - lineStart] = accumBuffer[lineStart .. accumLen];
+			accumLen -= lineStart;
+		} else {
+			accumLen = 0;
 		}
 	}
 }
@@ -82,6 +103,7 @@ void main() {
 	InitWindow(WINDOW_W, WINDOW_H, "AudioVision");
 	SetTargetFPS(30);
 
+	// Center window once at startup
 	Vector2 target = Vector2(
 		GetMonitorWidth(GetCurrentMonitor()) / 2.0f - WINDOW_W / 2.0f,
 		32
