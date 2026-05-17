@@ -124,7 +124,7 @@ void main() {
 			float centerY = WINDOW_H / 2.0f;
 			float baseRadiusX = 80.0f;
 			float baseRadiusY = 80.0f;
-			float barWidth = 1.0f;
+			float barWidth = 2.0f;
 			float barMaxLength = 60.0f;
 
 			foreach (i, v; bars) {
