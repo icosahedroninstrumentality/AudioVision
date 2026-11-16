@@ -119,14 +119,25 @@ void main()
 		auto uv = k.uv;
 		auto center = k.compose(Radian(0.5), Radian(0.5));
 		auto p = uv - center;
-		auto dist = (Radian.one - k.length(p) * Radian(2)).clamp(Radian.zero, Radian.one);
-		auto invdist = (Radian.one - k.pow(dist, Radian(5))).clamp(Radian.zero, Radian.one);
+		
 		auto angle = (k.atan2(p.component!"x", Radian.zero-p.component!"y") / Radian(6.283185307179586) + Radian.one) * Radian(0.5);
 		auto levelIndex = (angle * Radian(256)).clamp(Radian.zero, Radian(255)).opCast!int;
 		auto level = levels[levelIndex];
-		auto alpha = dist * invdist * level;
-		auto rgb = k.normalize(k.compose(k.cos(level * k.pi) + k.epsilon, k.sin(level * k.pi), level)) * alpha * Radian.two + k.pow(dist + level*dist, Radian(5));
-		k.output(k.compose(rgb.component!"x", rgb.component!"y", rgb.component!"z", alpha));
+		
+		auto dist = (k.length(p) * Radian(2)).clamp(Radian.zero, Radian.one);
+		auto invdist = (Radian.one - dist).clamp(Radian.zero, Radian.one);
+
+		auto l = level * level;
+		auto d = k.pow(invdist, Radian.two);
+		auto burst = k.pow(d, Radian(5));
+		auto star = burst + d * level * Radian.two;
+		auto rgb = (k.compose(
+			k.cos(l * invdist * k.pi * Radian.two),
+			k.cos(l * invdist * k.pi * Radian.two - Radian.two * k.pi / Radian(3)),
+			k.cos(l * invdist * k.pi * Radian.two + Radian.two * k.pi / Radian(3)),
+		)) * d * l + star;
+		
+		k.output(k.compose(rgb.component!"x", rgb.component!"y", rgb.component!"z", d * l + star));
 	});
 
 	Vector4 rect = Vector4(
