@@ -2,13 +2,18 @@
 	"authors": [
 		"Icosahedron Instrumentality"
 	],
-	"copyright": "Copyright © 2026, Icosahedron Instrumentality",
-	"dependencies": {
-		"raylib-d": "~>5.5.3"
-	},
-	"dflags": ["-O"],
-	"libs": ["raylib"],
-	"description": "Audio visualizer app",
 	"license": "ISC",
-	"name": "audiovision"
+	"dflags": [
+		"-O"
+	],
+	"copyright": "Copyright © 2026, Icosahedron Instrumentality",
+	"name": "audiovision",
+	"libs": [
+		"raylib"
+	],
+	"description": "Audio visualizer app",
+	"dependencies": {
+		"raylib-d": "~>5.5.3",
+		"jitkernel": "~>2026.20.2"
+	}
 }

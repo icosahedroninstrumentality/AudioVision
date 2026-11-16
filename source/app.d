@@ -5,19 +5,18 @@ import std.conv;
 import std.algorithm;
 import std.process;
 import std.exception;
+import jitkernel;
 
 import core.sys.posix.unistd;
 import core.sys.posix.fcntl : fcntl, F_SETFL, O_NONBLOCK;
 
-import raylib;
+enum WINDOW_W = Radian(220);
+enum WINDOW_H = Radian(220);
+enum MAX_BAR_VALUE = Radian(1000);
 
-enum WINDOW_W = 220;
-enum WINDOW_H = 220;
-enum MAX_BAR_VALUE = 64;
-
-float[256] barsBuffer;
+Radian[256] barsBuffer;
 int barsCount;
-float[] bars;
+Radian[] bars;
 
 ProcessPipes cavaPipe;
 
@@ -25,13 +24,14 @@ ProcessPipes cavaPipe;
 char[4096] accumBuffer;
 size_t accumLen;
 
-void spawnCava() {
+void spawnCava()
+{
 	string[] args = ["cava", "-p", "./cava_config"];
 	cavaPipe = pipeProcess(args);
 	fcntl(cavaPipe.stdout.fileno, F_SETFL, O_NONBLOCK);
 }
 
-void pollCava() {
+void pollCava () { try {
 	import core.sys.posix.unistd : read;
 	import std.algorithm.iteration : splitter;
 	import std.conv : to;
@@ -39,11 +39,15 @@ void pollCava() {
 	// 1. Read new data and append to accumulation buffer
 	char[4096] tmp;
 	auto n = read(cavaPipe.stdout.fileno, tmp.ptr, tmp.length);
-	if (n > 0) {
-		if (accumLen + n <= accumBuffer.length) {
+	if (n > 0)
+	{
+		if (accumLen + n <= accumBuffer.length)
+		{
 			accumBuffer[accumLen .. accumLen + n] = tmp[0 .. n];
 			accumLen += n;
-		} else {
+		}
+		else
+		{
 			// Buffer overflow – discard everything to avoid infinite growth
 			accumLen = 0;
 			return;
@@ -52,106 +56,130 @@ void pollCava() {
 
 	// 2. Process complete lines
 	size_t lineStart = 0;
-	for (size_t i = 0; i < accumLen; ++i) {
-		if (accumBuffer[i] == '\n') {
+	for (size_t i = 0; i < accumLen; ++i)
+	{
+		if (accumBuffer[i] == '\n')
+		{
 			// Found a complete line
 			auto line = accumBuffer[lineStart .. i];
 			lineStart = i + 1;
 
 			// Skip empty lines
-			if (line.length == 0) continue;
+			if (line.length == 0)
+				continue;
 
 			int idx = 0;
-			foreach (token; splitter(line, ';')) {
-				if (token.length == 0) continue;
-				try {
-					if (idx < barsBuffer.length) {
-						barsBuffer[idx] = to!float(token);
+			foreach (token; splitter(line, ';'))
+			{
+				if (token.length == 0)
+					continue;
+				try
+				{
+					if (idx < barsBuffer.length)
+					{
+						barsBuffer[idx] = Radian(to!float(token));
 						idx++;
-					} else break;
-				} catch (Exception) {}
+					}
+					else
+						break;
+				}
+				catch (Exception)
+				{
+				}
 			}
 
-			barsCount = idx;
-			bars = barsBuffer[0 .. idx];
+			bars = new Radian[256];
+			for (int x = 0; x < idx; ++x)
+			{
+				bars[x] = barsBuffer[x].clamp(Radian.zero, MAX_BAR_VALUE) / MAX_BAR_VALUE;
+			}
 		}
 	}
 
 	// 3. Remove processed lines from buffer
-	if (lineStart > 0) {
-		if (lineStart < accumLen) {
+	if (lineStart > 0)
+	{
+		if (lineStart < accumLen)
+		{
 			// Shift remaining partial data to front
 			accumBuffer[0 .. accumLen - lineStart] = accumBuffer[lineStart .. accumLen];
 			accumLen -= lineStart;
-		} else {
+		}
+		else
+		{
 			accumLen = 0;
 		}
 	}
-}
+} catch (Exception e) {}}
 
-void main() {
-	SetConfigFlags(
-		ConfigFlags.FLAG_BORDERLESS_WINDOWED_MODE |
-		ConfigFlags.FLAG_WINDOW_TRANSPARENT |
-		ConfigFlags.FLAG_WINDOW_MOUSE_PASSTHROUGH |
-		ConfigFlags.FLAG_WINDOW_UNDECORATED |
-		ConfigFlags.FLAG_WINDOW_ALWAYS_RUN |
-		ConfigFlags.FLAG_WINDOW_UNFOCUSED |
-		ConfigFlags.FLAG_WINDOW_TOPMOST
+void main()
+{
+	Kernel blob = new Kernel((Kernel k) {
+		KernelStored!(Radian[]) levels = k.link!(Radian[])(bars, 256);
+		auto uv = k.uv;
+		auto center = k.compose(Radian(0.5), Radian(0.5));
+		auto p = uv - center;
+		auto dist = (Radian.one - k.length(p) * Radian(2)).clamp(Radian.zero, Radian.one);
+		auto invdist = (Radian.one - k.pow(dist, Radian(5))).clamp(Radian.zero, Radian.one);
+		auto angle = (k.atan2(p.component!"x", Radian.zero-p.component!"y") / Radian(6.283185307179586) + Radian.one) * Radian(0.5);
+		auto levelIndex = (angle * Radian(256)).clamp(Radian.zero, Radian(255)).opCast!int;
+		auto level = levels[levelIndex];
+		auto alpha = dist * invdist * level;
+		auto rgb = k.normalize(k.compose(k.cos(level * k.pi) + k.epsilon, k.sin(level * k.pi), level)) * alpha * Radian.two + k.pow(dist + level*dist, Radian(5));
+		k.output(k.compose(rgb.component!"x", rgb.component!"y", rgb.component!"z", alpha));
+	});
+
+	Vector4 rect = Vector4(
+		Radian(0),
+		Radian(0),
+		Radian(WINDOW_W),
+		Radian(WINDOW_H),
 	);
 
-	InitWindow(WINDOW_W, WINDOW_H, "AudioVision");
-	SetTargetFPS(30);
+	{
+		import bindbc.opengl;
+		import raylib;
 
-	// Center window once at startup
-	Vector2 target = Vector2(
-		GetMonitorWidth(GetCurrentMonitor()) / 2.0f - WINDOW_W / 2.0f,
-		32
-	);
-	SetWindowPosition(cast(int)target.x, cast(int)target.y);
+		SetConfigFlags(
+			ConfigFlags.FLAG_BORDERLESS_WINDOWED_MODE |
+				ConfigFlags.FLAG_WINDOW_TRANSPARENT |
+				ConfigFlags.FLAG_WINDOW_MOUSE_PASSTHROUGH |
+				ConfigFlags.FLAG_WINDOW_UNDECORATED |
+				ConfigFlags.FLAG_WINDOW_ALWAYS_RUN |
+				ConfigFlags.FLAG_WINDOW_UNFOCUSED |
+				ConfigFlags.FLAG_WINDOW_TOPMOST |
+				ConfigFlags.FLAG_WINDOW_HIGHDPI
+		);
 
-	spawnCava();
+		InitWindow(cast (int) WINDOW_W.raw, cast (int) WINDOW_H.raw, "AudioVision");
+		auto openglSupport = loadOpenGL();
+		if (openglSupport == GLSupport.noLibrary || openglSupport < GLSupport.gl33)
+			throw new Exception("OpenGL 3.3+ is required for JITKernel");
+		SetTargetFPS(30);
 
-	while (!WindowShouldClose()) {
-		pollCava();
+		Vector2 target = Vector2(
+			GetMonitorWidth(GetCurrentMonitor()) / 2.0f - WINDOW_W.raw / 2.0f,
+			32
+		);
+		SetWindowPosition(cast(int) target.x, cast(int) target.y);
 
-		if (bars.length == 256) {
-			import std.math;
+		jitkernel.Texture.screen = new jitkernel.Texture(jitkernel.Vector2(WINDOW_W, WINDOW_H));
+
+		spawnCava();
+
+		while (!WindowShouldClose())
+		{
+			pollCava();
 			BeginDrawing();
-			ClearBackground(Colors.BLANK);
 
-			float centerX = WINDOW_W / 2.0f;
-			float centerY = WINDOW_H / 2.0f;
-			float baseRadiusX = 80.0f;
-			float baseRadiusY = 80.0f;
-			float barWidth = 2.0f;
-			float barMaxLength = 60.0f;
-
-			foreach (i, v; bars) {
-				float angle = (cast(float)i / cast(float)bars.length) * PI * 2.0f + PI;
-				float normalized = v / MAX_BAR_VALUE;
-				float barLength = normalized * barMaxLength;
-				float innerX = centerX + sin(angle) * (baseRadiusX - barLength);
-				float innerY = centerY + cos(angle) * (baseRadiusY - barLength);
-				float outerX = centerX + sin(angle) * (baseRadiusX + barLength * 0.5f);
-				float outerY = centerY + cos(angle) * (baseRadiusY + barLength * 0.5f);
-
-				float p = pow(normalized, 0.5);
-				ubyte r = cast(ubyte)(p * 255.0f);
-				ubyte g = cast(ubyte)((1.0f - p) * 255.0f);
-				ubyte b = cast(ubyte)(p * 128.0f + 64.0f);
-
-				DrawLineEx(
-					Vector2(innerX, innerY),
-					Vector2(outerX, outerY),
-					barWidth,
-					Color(r, g, b)
-				);
+			if (bars.length == 256)
+			{
+				jitkernel.Texture.clearRaw(jitkernel.Vector4.zero);
+				blob.draw(jitkernel.Texture.raw, jitkernel.Texture.screen.rect);
 			}
-
 			EndDrawing();
 		}
-	}
 
-	CloseWindow();
+		CloseWindow();
+	}
 }
