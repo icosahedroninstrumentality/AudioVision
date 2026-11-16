@@ -1,6 +1,8 @@
 [general]
 bars = 256
 framerate = 30
+autosens = 0
+sensitivity = 120
 
 [input]
 method = pipewire
@@ -22,4 +24,4 @@ reverse = 0
 [smoothing]
 monstercat = 0
 waves = 100
-noise_reduction = 0.1
+noise_reduction = 0
