@@ -99,10 +99,11 @@ void main() {
 		auto d = k.pow(invdist, Radian.two);
 		auto burst = k.pow(d, Radian(5) - (l+sub) * Radian.two);
 		auto star = burst + d * l * Radian.two;
+		auto hue = level + Radian(.1) - sub;
 		auto rgb = (k.compose(
-			k.cos((level+Radian(0.1)) * invdist * k.pi * Radian.two),
-			k.cos((level+Radian(0.1)) * invdist * k.pi * Radian.two - Radian.two * k.pi / Radian(3)),
-			k.cos((level+Radian(0.1)) * invdist * k.pi * Radian.two + Radian.two * k.pi / Radian(3)),
+			k.cos((hue) * invdist * k.pi * Radian.two),
+			k.cos((hue) * invdist * k.pi * Radian.two - Radian.two * k.pi / Radian(3)),
+			k.cos((hue) * invdist * k.pi * Radian.two + Radian.two * k.pi / Radian(3)),
 		)) * d * l + star;
 		
 		k.output(k.compose(rgb.component!"x", rgb.component!"y", rgb.component!"z", d * l + star));
