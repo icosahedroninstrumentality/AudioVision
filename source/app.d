@@ -84,6 +84,7 @@ void main() {
 		KernelStored!Vector2 offset = k.link(random);
 		auto uv = k.uv;
 		auto sub = levels[127]+levels[128];
+		auto high = levels[0]+levels[255];
 		auto center = k.compose(Radian(0.5), Radian(0.5));
 		auto p = uv - center + offset * sub * k.literal!Radian(Radian(1) / WINDOW_W * Radian(16));
 		auto distv = (k.length(p) * Radian(2)).clamp(Radian.zero, Radian.one);
@@ -99,7 +100,7 @@ void main() {
 		auto d = k.pow(invdist, Radian.two);
 		auto burst = k.pow(d, Radian(5) - (l+sub) * Radian.two);
 		auto star = burst + d * l * Radian.two - sub;
-		auto hue = level + Radian(.1) - sub;
+		auto hue = level + Radian(.1) - sub + high * Radian(2);
 		auto rgb = (k.compose(
 			k.cos((hue) * invdist * k.pi * Radian.two),
 			k.cos((hue) * invdist * k.pi * Radian.two - Radian.two * k.pi / Radian(3)),
