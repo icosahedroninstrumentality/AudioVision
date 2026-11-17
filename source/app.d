@@ -83,7 +83,7 @@ void main() {
 		KernelStored!(Radian[]) levels = k.link!(Radian[])(bars, BARNUMi);
 		KernelStored!Vector2 offset = k.link(random);
 		auto uv = k.uv;
-		auto sub = levels[127]+levels[128];
+		auto sub = levels[117]+levels[138];
 		auto high = levels[0]+levels[255];
 		auto center = k.compose(Radian(0.5), Radian(0.5));
 		auto p = uv - center + offset * sub * k.literal!Radian(Radian(1) / WINDOW_W * Radian(16));
