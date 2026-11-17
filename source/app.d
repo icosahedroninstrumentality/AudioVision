@@ -83,8 +83,9 @@ void main() {
 		KernelStored!(Radian[]) levels = k.link!(Radian[])(bars, BARNUMi);
 		KernelStored!Vector2 offset = k.link(random);
 		auto uv = k.uv;
+		auto sub = levels[127]+levels[128];
 		auto center = k.compose(Radian(0.5), Radian(0.5));
-		auto p = uv - center + offset * levels[0] * k.literal!Radian(Radian(1) / WINDOW_W * Radian(16));
+		auto p = uv - center + offset * sub * k.literal!Radian(Radian(1) / WINDOW_W * Radian(16));
 		auto distv = (k.length(p) * Radian(2)).clamp(Radian.zero, Radian.one);
 		
 		auto angle = (k.atan2(p.component!"x", Radian.zero-p.component!"y") / Radian(6.283185307179586) + Radian.one) * Radian(0.5);
@@ -96,7 +97,7 @@ void main() {
 
 		auto l = Radian.one - k.pow(Radian.one - level, k.pi);
 		auto d = k.pow(invdist, Radian.two);
-		auto burst = k.pow(d, Radian(5) - l * Radian.two);
+		auto burst = k.pow(d, Radian(5) - (l+sub) * Radian.two);
 		auto star = burst + d * l * Radian.two;
 		auto rgb = (k.compose(
 			k.cos((level+Radian(0.1)) * invdist * k.pi * Radian.two),
