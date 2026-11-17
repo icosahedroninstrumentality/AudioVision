@@ -98,7 +98,7 @@ void main() {
 		auto l = Radian.one - k.pow(Radian.one - level, k.pi);
 		auto d = k.pow(invdist, Radian.two);
 		auto burst = k.pow(d, Radian(5) - (l+sub) * Radian.two);
-		auto star = burst + d * l * Radian.two;
+		auto star = burst + d * l * Radian.two - sub;
 		auto hue = level + Radian(.1) - sub;
 		auto rgb = (k.compose(
 			k.cos((hue) * invdist * k.pi * Radian.two),
